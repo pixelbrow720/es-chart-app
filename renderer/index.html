@@ -13,7 +13,20 @@
 </head>
 <body>
 
-<!-- ── TOP BAR ──────────────────────────────────────────────────────── -->
+<!-- ── TEMPLATE MODAL ──────────────────────────────────────────────────── -->
+<div id="tpl-modal" class="modal-backdrop" style="display:none">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">📋 Strategy Templates</span>
+      <button class="modal-close" id="tpl-modal-close">✕</button>
+    </div>
+    <div class="modal-body" id="tpl-list">
+      <!-- Filled by JS -->
+    </div>
+  </div>
+</div>
+
+<!-- ── TOP BAR ──────────────────────────────────────────────────────────── -->
 <div id="topbar">
   <div id="logo">ES·TBBO <em>SUITE</em></div>
   <div class="vsep"></div>
@@ -22,7 +35,7 @@
   <div class="ctrl" style="gap:5px">
     <label>DATA</label>
     <select id="dataset-select" style="max-width:200px;min-width:120px">
-      <option value="">— scanning... —</option>
+      <option value="">— scanning… —</option>
     </select>
     <button id="file-btn" class="icon-btn" title="Browse other file…">
       <img class="icon" src="icons/briefcase.png" alt="browse"/>
@@ -37,6 +50,16 @@
     <select id="sym-select"><option>—</option></select>
   </div>
 
+  <!-- Session -->
+  <div class="ctrl" style="gap:5px">
+    <label>SESSION</label>
+    <select id="session-select">
+      <option value="ALL">ALL</option>
+      <option value="RTH">RTH</option>
+      <option value="ETH">ETH</option>
+    </select>
+  </div>
+
   <!-- Date range -->
   <div class="ctrl" style="gap:5px">
     <label>FROM</label><input type="date" id="date-from"/>
@@ -49,29 +72,34 @@
   <div id="file-badges">
     <span class="fbadge" id="fb-rows">—</span>
     <span class="fbadge" id="fb-range">—</span>
+    <span class="fbadge" id="fb-bars">—</span>
   </div>
 
   <div class="vsep"></div>
   <div id="status">ready</div>
 </div>
 
-<!-- ── TABS ──────────────────────────────────────────────────────────── -->
+<!-- ── TABS ──────────────────────────────────────────────────────────────── -->
 <div id="tabs">
   <button class="tab active" data-tab="strategy">
     <img class="icon tab-icon" src="icons/settings-gears.png" alt=""/>
     Strategy
+  </button>
+  <button class="tab" data-tab="chart">
+    <img class="icon tab-icon" src="icons/analytics.png" alt=""/>
+    Chart
   </button>
   <button class="tab" data-tab="backtest">
     <img class="icon tab-icon" src="icons/target.png" alt=""/>
     Backtest
   </button>
   <button class="tab" data-tab="analytics">
-    <img class="icon tab-icon" src="icons/analytics.png" alt=""/>
+    <img class="icon tab-icon" src="icons/consistency.png" alt=""/>
     Analytics
   </button>
 </div>
 
-<!-- ── BODY ──────────────────────────────────────────────────────────── -->
+<!-- ── BODY ──────────────────────────────────────────────────────────────── -->
 <div id="body">
 
   <!-- ════════════════════════════════════════════════════════════════
@@ -83,7 +111,7 @@
       <div class="stitle" style="margin:0;letter-spacing:2px">STRATEGY BUILDER</div>
       <div class="vsep"></div>
       <button class="strat-btn" id="tpl-btn">
-        <img class="icon btn-icon" src="icons/book.png" alt=""/> Template
+        <img class="icon btn-icon" src="icons/book.png" alt=""/> Templates
       </button>
       <button class="strat-btn" id="save-btn">
         <img class="icon btn-icon" src="icons/dedication.png" alt=""/> Save .py
@@ -92,6 +120,7 @@
         <img class="icon btn-icon" src="icons/briefcase.png" alt=""/> Load .py
       </button>
       <div class="spacer"></div>
+      <span id="shortcut-hint">Ctrl+Enter to run</span>
       <button class="strat-btn run" id="run-strat-btn" disabled>
         <img class="icon btn-icon btn-icon-dark" src="icons/target.png" alt=""/>
         ▶ &nbsp;RUN BACKTEST
@@ -154,13 +183,17 @@
         <div class="strat-section" style="flex:1;display:flex;flex-direction:column;min-height:0">
           <div class="stitle-row">
             <div class="stitle">🖥 Console</div>
-            <button class="strat-btn-sm" id="clear-console-btn">
-              <img class="icon" src="icons/trash-can.png" alt=""
-                   style="width:10px;height:10px;vertical-align:middle"/> clear
-            </button>
+            <div style="display:flex;gap:4px">
+              <button class="strat-btn-sm" id="copy-console-btn">copy</button>
+              <button class="strat-btn-sm" id="clear-console-btn">
+                <img class="icon" src="icons/trash-can.png" alt=""
+                     style="width:10px;height:10px;vertical-align:middle"/> clear
+              </button>
+            </div>
           </div>
           <div id="strat-console">Strategy editor ready.
 Load a dataset and click ▶ Run Backtest.
+Keyboard shortcut: Ctrl+Enter
 </div>
         </div>
 
@@ -170,18 +203,18 @@ Load a dataset and click ▶ Run Backtest.
           <div class="api-ref">
             <b>on_bar(bar, ctx, history)</b><br>
             <span class="api-cat">OHLCV</span>
-            bar.open / high / low / close<br>
-            bar.volume / time<br>
+            bar['open'] / 'high' / 'low' / 'close'<br>
+            bar['volume'] / 'time'<br>
             <span class="api-cat">MARKET DATA</span>
-            bar.bid / ask / vwap<br>
+            bar['bid'] / 'ask' / 'vwap'<br>
             <span class="api-cat">ORDER FLOW</span>
-            bar.delta / delta_pct / cum_delta<br>
-            bar.buy_vol / sell_vol<br>
-            bar.size_imb / avg_bid_sz / avg_ask_sz<br>
+            bar['delta'] / 'delta_pct' / 'cum_delta'<br>
+            bar['buy_vol'] / 'sell_vol'<br>
+            bar['size_imb'] / 'avg_bid_sz' / 'avg_ask_sz'<br>
             <span class="api-cat">CONTEXT</span>
             ctx.position — pos (+long / -short)<br>
             ctx.entry_price — avg fill price<br>
-            ctx.cash — cash balance<br>
+            ctx.cash — current cash<br>
             ctx.data — user state dict<br>
             ctx.bars_seen — bar index (int)<br>
             history — list of all bars so far<br>
@@ -201,6 +234,57 @@ Load a dataset and click ▶ Run Backtest.
 
 
   <!-- ════════════════════════════════════════════════════════════════
+       CHART PAGE
+       ════════════════════════════════════════════════════════════════ -->
+  <div class="page" id="chart-page">
+
+    <div id="ch-toolbar">
+      <div class="stitle" style="margin:0;letter-spacing:2px">MARKET CHART</div>
+      <div class="vsep"></div>
+      <!-- Indicator toggles -->
+      <div class="ctrl" style="gap:6px">
+        <label>OVERLAYS</label>
+        <label class="toggle-label">
+          <input type="checkbox" class="ch-overlay" id="ch-vwap" checked> VWAP
+        </label>
+        <label class="toggle-label">
+          <input type="checkbox" class="ch-overlay" id="ch-ema9"> EMA9
+        </label>
+        <label class="toggle-label">
+          <input type="checkbox" class="ch-overlay" id="ch-ema21"> EMA21
+        </label>
+      </div>
+      <div class="vsep"></div>
+      <div class="ctrl" style="gap:6px">
+        <label>PANELS</label>
+        <label class="toggle-label">
+          <input type="checkbox" class="ch-panel" id="ch-vol-panel" checked> Volume
+        </label>
+        <label class="toggle-label">
+          <input type="checkbox" class="ch-panel" id="ch-delta-panel" checked> Delta
+        </label>
+        <label class="toggle-label">
+          <input type="checkbox" class="ch-panel" id="ch-cumdelta-panel"> Cum Δ
+        </label>
+      </div>
+      <div class="spacer"></div>
+      <div id="ch-bar-count" class="fbadge">— bars</div>
+      <button id="ch-refresh-btn" class="strat-btn">
+        <img class="icon btn-icon" src="icons/target.png" alt=""/> Refresh
+      </button>
+    </div>
+
+    <div id="ch-body">
+      <div id="main-chart-wrap">
+        <div id="main-chart"></div>
+        <div id="ch-crosshair-info">hover over chart</div>
+      </div>
+    </div>
+
+  </div><!-- #chart-page -->
+
+
+  <!-- ════════════════════════════════════════════════════════════════
        BACKTEST PAGE
        ════════════════════════════════════════════════════════════════ -->
   <div class="page" id="backtest-page">
@@ -212,7 +296,13 @@ Load a dataset and click ▶ Run Backtest.
         <img class="icon btn-icon btn-icon-dark" src="icons/target.png" alt=""/>
         ▶ &nbsp;RUN BACKTEST
       </button>
+      <button id="bt-export-btn" class="strat-btn" disabled title="Export trades as CSV">
+        <img class="icon btn-icon" src="icons/dedication.png" alt=""/> Export CSV
+      </button>
       <div id="bt-status">no results yet — write a strategy and run</div>
+      <div class="spacer"></div>
+      <!-- Quick stats badges -->
+      <div id="bt-quick-badges"></div>
     </div>
 
     <div id="bt-body">
@@ -229,18 +319,25 @@ Load a dataset and click ▶ Run Backtest.
         <div id="equity-chart"></div>
         <div id="dd-chart"></div>
         <div id="trades-panel">
-          <div class="panel-label">TRADE LOG</div>
+          <div class="panel-label-row">
+            <span class="panel-label">TRADE LOG</span>
+            <div style="display:flex;gap:6px;align-items:center;padding:0 8px">
+              <input type="text" id="trade-filter" placeholder="filter…" style="height:20px;width:100px;font-size:10px"/>
+              <span id="trade-count" style="color:var(--text3);font-size:9px"></span>
+            </div>
+          </div>
           <table id="trades-table">
             <thead>
               <tr>
-                <th>#</th>
-                <th>SIDE</th>
-                <th>ENTRY TIME</th>
-                <th>EXIT TIME</th>
-                <th>ENTRY</th>
-                <th>EXIT</th>
-                <th>SZ</th>
-                <th>PNL</th>
+                <th data-sort="num">#</th>
+                <th data-sort="side">SIDE</th>
+                <th data-sort="entry_time">ENTRY TIME</th>
+                <th data-sort="exit_time">EXIT TIME</th>
+                <th data-sort="entry">ENTRY</th>
+                <th data-sort="exit">EXIT</th>
+                <th data-sort="size">SZ</th>
+                <th data-sort="duration">DURATION</th>
+                <th data-sort="pnl">PNL</th>
               </tr>
             </thead>
             <tbody id="trades-body"></tbody>
@@ -295,6 +392,12 @@ Load a dataset and click ▶ Run Backtest.
   </div><!-- #analytics-page -->
 
 </div><!-- #body -->
+
+<!-- Loading overlay -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div id="loading-msg">Running…</div>
+</div>
 
 <script src="app.js"></script>
 </body>
