@@ -1,0 +1,13 @@
+{
+  "name": "es-tbbo-chart",
+  "version": "1.0.0",
+  "description": "ES TBBO Chart — Electron + FastAPI",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "install-backend": "pip install -r backend/requirements.txt"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0"
+  }
+}

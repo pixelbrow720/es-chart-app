@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>ES TBBO — Trading Suite</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="topbar">
+  <div id="logo">ES·TBBO <em>SUITE</em></div>
+  <div class="vsep"></div>
+  <button id="file-btn">📂 Open File</button>
+  <div id="file-name">— no file loaded —</div>
+  <div class="vsep"></div>
+  <div class="ctrl"><label>SYM</label><select id="sym-select"><option>—</option></select></div>
+  <div class="ctrl"><label>FROM</label><input type="date" id="date-from"/><label>TO</label><input type="date" id="date-to"/></div>
+  <div class="vsep"></div>
+  <div id="bar-type-grp">
+    <button class="bbt active" data-type="time">TIME</button>
+    <button class="bbt" data-type="volume">VOL</button>
+    <button class="bbt" data-type="tick">TICK</button>
+    <button class="bbt" data-type="range">RANGE</button>
+  </div>
+  <div class="ctrl" id="time-ctrl"><label>TF</label>
+    <select id="tf-select">
+      <option value="1min">1m</option><option value="5min" selected>5m</option>
+      <option value="15min">15m</option><option value="30min">30m</option><option value="1h">1h</option>
+    </select>
+  </div>
+  <div class="ctrl" id="thresh-ctrl" style="display:none">
+    <label id="thresh-lbl">N</label>
+    <input type="number" id="thresh-inp" value="1000" min="1" style="width:80px"/>
+  </div>
+  <div class="spacer"></div>
+  <div id="status">ready</div>
+  <div class="vsep"></div>
+  <button id="load-btn" disabled>LOAD CHART</button>
+</div>
+
+<div id="tabs">
+  <button class="tab active" data-tab="chart">📊 Chart</button>
+  <button class="tab" data-tab="strategy">⚙ Strategy</button>
+  <button class="tab" data-tab="backtest">▶ Backtest</button>
+  <button class="tab" data-tab="analytics">📈 Analytics</button>
+</div>
+
+<div id="body">
+
+  <!-- CHART -->
+  <div class="page active" id="chart-page">
+    <div id="chart-sidebar">
+      <div class="sside"><div class="stitle">Bar Info</div>
+        <div class="irow"><span class="ilbl">O</span><span class="ival" id="inf-o">—</span></div>
+        <div class="irow"><span class="ilbl">H</span><span class="ival up" id="inf-h">—</span></div>
+        <div class="irow"><span class="ilbl">L</span><span class="ival dn" id="inf-l">—</span></div>
+        <div class="irow"><span class="ilbl">C</span><span class="ival" id="inf-c">—</span></div>
+        <div class="irow"><span class="ilbl">VOL</span><span class="ival" id="inf-v">—</span></div>
+        <div class="irow"><span class="ilbl">CHG</span><span class="ival" id="inf-chg">—</span></div>
+      </div>
+      <div class="sside"><div class="stitle">Session</div>
+        <div class="irow"><span class="ilbl">Bars</span><span class="ival" id="inf-bars">—</span></div>
+        <div class="irow"><span class="ilbl">High</span><span class="ival up" id="inf-dh">—</span></div>
+        <div class="irow"><span class="ilbl">Low</span><span class="ival dn" id="inf-dl">—</span></div>
+        <div class="irow"><span class="ilbl">Range</span><span class="ival" id="inf-dr">—</span></div>
+      </div>
+      <div class="sside"><div class="stitle">File Info</div>
+        <div class="irow"><span class="ilbl">Rows</span><span class="ival" id="inf-rows">—</span></div>
+        <div class="irow"><span class="ilbl">From</span><span class="ival" id="inf-first" style="font-size:9px">—</span></div>
+        <div class="irow"><span class="ilbl">To</span><span class="ival" id="inf-last" style="font-size:9px">—</span></div>
+      </div>
+    </div>
+    <div id="chart-main">
+      <div id="chart-empty"><div class="empty-ico">📊</div><div class="empty-txt">No Data Loaded</div><div class="empty-sub">Open a parquet file dan klik LOAD CHART</div></div>
+      <div id="chart-overlay" class="hidden"><div class="spin"></div><div class="overlay-txt">Loading bars...</div></div>
+      <div id="chart-el"></div>
+      <div id="vol-el"></div>
+    </div>
+  </div>
+
+  <!-- STRATEGY -->
+  <div class="page" id="strategy-page">
+    <div id="strat-toolbar">
+      <div class="stitle" style="margin:0">STRATEGY BUILDER</div>
+      <div class="vsep"></div>
+      <button class="strat-btn" id="tpl-btn">📋 Template</button>
+      <button class="strat-btn" id="save-btn">💾 Save</button>
+      <button class="strat-btn" id="load-strat-btn">📂 Load</button>
+      <div class="spacer"></div>
+      <button class="strat-btn run" id="run-strat-btn" disabled>▶ Run Backtest</button>
+    </div>
+    <div id="strat-body">
+      <div id="code-panel"><textarea id="code-editor"></textarea></div>
+      <div id="strat-right">
+        <div class="strat-section"><div class="stitle">Backtest Params</div>
+          <div id="strat-params">
+            <label>Initial Capital ($)</label><input type="number" id="p-capital" value="100000"/>
+            <label>Commission ($/side/contract)</label><input type="number" id="p-commission" value="2" step="0.5"/>
+            <label>Slippage (points)</label><input type="number" id="p-slippage" value="0.25" step="0.25"/>
+            <label>Contract Size ($/point)</label><input type="number" id="p-contract" value="50"/>
+          </div>
+        </div>
+        <div class="strat-section"><div class="stitle">Console</div>
+          <div id="strat-console">Strategy editor ready.
+Write your on_bar() function and click Run Backtest.
+</div>
+        </div>
+        <div class="strat-section"><div class="stitle">API Reference</div>
+          <div class="api-ref">
+            <b>on_bar(bar, ctx, history)</b><br>
+            bar.open/high/low/close/volume/time<br>
+            ctx.position — current position (+ long, - short)<br>
+            ctx.entry_price — entry price<br>
+            ctx.cash — available cash<br>
+            ctx.data — user dict (store anything)<br>
+            ctx.bars_seen — bar index<br>
+            history — list of all prev bars<br><br>
+            <b>Returns:</b><br>
+            ('BUY', size) → open long<br>
+            ('SELL', size) → open short<br>
+            ('CLOSE', 0) → close position<br>
+            None → hold
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BACKTEST -->
+  <div class="page" id="backtest-page">
+    <div id="bt-toolbar">
+      <div class="stitle" style="margin:0">BACKTEST RESULTS</div>
+      <div class="vsep"></div>
+      <button id="bt-run-btn" disabled>▶ RUN BACKTEST</button>
+      <div id="bt-status">no results yet — write strategy and run</div>
+    </div>
+    <div id="bt-body">
+      <div id="bt-sidebar">
+        <div id="bt-hint" style="color:var(--text3);font-size:10px">Run a backtest to see stats here.</div>
+        <div id="bt-stats-wrap"></div>
+      </div>
+      <div id="bt-charts">
+        <div id="equity-chart"></div>
+        <div id="dd-chart"></div>
+        <div id="trades-panel">
+          <table id="trades-table">
+            <thead><tr><th>#</th><th>SIDE</th><th>ENTRY</th><th>EXIT</th><th>IN</th><th>OUT</th><th>SZ</th><th>PNL</th></tr></thead>
+            <tbody id="trades-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ANALYTICS -->
+  <div class="page" id="analytics-page">
+    <div id="an-toolbar">
+      <div class="stitle" style="margin:0">ANALYTICS & MONTE CARLO</div>
+      <div class="spacer"></div>
+      <div id="mc-stats-bar"></div>
+    </div>
+    <div id="an-body">
+      <div class="an-panel"><div class="an-panel-title">🎲 Monte Carlo Equity Paths (100 sims)</div><div class="an-chart" id="mc-paths-chart"></div></div>
+      <div class="an-panel"><div class="an-panel-title">📊 Final Equity Distribution</div><div class="an-chart" id="mc-dist-chart"></div></div>
+      <div class="an-panel"><div class="an-panel-title">📉 Max Drawdown Distribution</div><div class="an-chart" id="mc-dd-chart"></div></div>
+      <div class="an-panel"><div class="an-panel-title">💰 Trade PnL Distribution</div><div class="an-chart" id="pnl-dist-chart"></div></div>
+    </div>
+  </div>
+
+</div>
+<script src="app.js"></script>
+</body>
+</html>
