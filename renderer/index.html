@@ -13,165 +13,131 @@
 </head>
 <body>
 
-<!-- TOP BAR -->
+<!-- ── TOP BAR ──────────────────────────────────────────────────────── -->
 <div id="topbar">
   <div id="logo">ES·TBBO <em>SUITE</em></div>
   <div class="vsep"></div>
-  <button id="file-btn">
-    <img class="icon" src="icons/briefcase.png" alt="open"/>
-    Open File
-  </button>
-  <div id="file-name">— no file loaded —</div>
+
+  <!-- Dataset file selector -->
+  <div class="ctrl" style="gap:5px">
+    <label>DATA</label>
+    <select id="dataset-select" style="max-width:200px;min-width:120px">
+      <option value="">— scanning... —</option>
+    </select>
+    <button id="file-btn" class="icon-btn" title="Browse other file…">
+      <img class="icon" src="icons/briefcase.png" alt="browse"/>
+    </button>
+  </div>
+
   <div class="vsep"></div>
-  <div class="ctrl"><label>SYM</label>
+
+  <!-- Symbol -->
+  <div class="ctrl" style="gap:5px">
+    <label>SYM</label>
     <select id="sym-select"><option>—</option></select>
   </div>
-  <div class="ctrl">
+
+  <!-- Date range -->
+  <div class="ctrl" style="gap:5px">
     <label>FROM</label><input type="date" id="date-from"/>
     <label>TO</label><input type="date" id="date-to"/>
   </div>
-  <div class="vsep"></div>
-  <div id="bar-type-grp">
-    <button class="bbt active" data-type="time">TIME</button>
-    <button class="bbt" data-type="volume">VOL</button>
-    <button class="bbt" data-type="tick">TICK</button>
-    <button class="bbt" data-type="range">RANGE</button>
-  </div>
-  <div class="ctrl" id="time-ctrl">
-    <label>TF</label>
-    <select id="tf-select">
-      <option value="1min">1m</option>
-      <option value="5min" selected>5m</option>
-      <option value="15min">15m</option>
-      <option value="30min">30m</option>
-      <option value="1h">1h</option>
-    </select>
-  </div>
-  <div class="ctrl" id="thresh-ctrl" style="display:none">
-    <label id="thresh-lbl">N</label>
-    <input type="number" id="thresh-inp" value="1000" min="1" style="width:80px"/>
-  </div>
-  <div class="vsep"></div>
-  <div class="ctrl" id="indicator-ctrl">
-    <button class="ind-btn ind-active" id="toggle-vwap" title="VWAP overlay">VWAP</button>
-    <button class="ind-btn" id="toggle-ema" title="EMA overlay">EMA</button>
-    <div id="ema-period-wrap" class="ctrl" style="display:none;gap:3px">
-      <label style="font-size:9px">P</label>
-      <input type="number" id="ema-period" value="20" min="2" max="200" style="width:46px"/>
-    </div>
-    <button class="ind-btn" id="toggle-spread" title="Bid/Ask spread panel">SPR</button>
-  </div>
+
   <div class="spacer"></div>
-  <div id="status">ready</div>
+
+  <!-- File info badges -->
+  <div id="file-badges">
+    <span class="fbadge" id="fb-rows">—</span>
+    <span class="fbadge" id="fb-range">—</span>
+  </div>
+
   <div class="vsep"></div>
-  <button id="load-btn" disabled>LOAD CHART</button>
+  <div id="status">ready</div>
 </div>
 
-<!-- TABS -->
+<!-- ── TABS ──────────────────────────────────────────────────────────── -->
 <div id="tabs">
-  <button class="tab active" data-tab="chart">
-    <img class="icon tab-icon" src="icons/chart.png" alt=""/> Chart
-  </button>
-  <button class="tab" data-tab="strategy">
-    <img class="icon tab-icon" src="icons/settings-gears.png" alt=""/> Strategy
+  <button class="tab active" data-tab="strategy">
+    <img class="icon tab-icon" src="icons/settings-gears.png" alt=""/>
+    Strategy
   </button>
   <button class="tab" data-tab="backtest">
-    <img class="icon tab-icon" src="icons/target.png" alt=""/> Backtest
+    <img class="icon tab-icon" src="icons/target.png" alt=""/>
+    Backtest
   </button>
   <button class="tab" data-tab="analytics">
-    <img class="icon tab-icon" src="icons/analytics.png" alt=""/> Analytics
+    <img class="icon tab-icon" src="icons/analytics.png" alt=""/>
+    Analytics
   </button>
 </div>
 
+<!-- ── BODY ──────────────────────────────────────────────────────────── -->
 <div id="body">
 
-  <!-- CHART PAGE -->
-  <div class="page active" id="chart-page">
-    <div id="chart-sidebar">
-      <div class="sside">
-        <div class="stitle">Bar Info</div>
-        <div class="irow"><span class="ilbl">O</span><span class="ival" id="inf-o">—</span></div>
-        <div class="irow"><span class="ilbl">H</span><span class="ival up" id="inf-h">—</span></div>
-        <div class="irow"><span class="ilbl">L</span><span class="ival dn" id="inf-l">—</span></div>
-        <div class="irow"><span class="ilbl">C</span><span class="ival" id="inf-c">—</span></div>
-        <div class="irow"><span class="ilbl">VOL</span><span class="ival" id="inf-v">—</span></div>
-        <div class="irow"><span class="ilbl">CHG</span><span class="ival" id="inf-chg">—</span></div>
-      </div>
-      <div class="sside">
-        <div class="stitle">Market Data</div>
-        <div class="irow"><span class="ilbl">BID</span><span class="ival up" id="inf-bid">—</span></div>
-        <div class="irow"><span class="ilbl">ASK</span><span class="ival dn" id="inf-ask">—</span></div>
-        <div class="irow"><span class="ilbl">SPR</span><span class="ival" id="inf-spread">—</span></div>
-        <div class="irow"><span class="ilbl">VWAP</span><span class="ival" id="inf-vwap">—</span></div>
-      </div>
-      <div class="sside">
-        <div class="stitle">Order Flow</div>
-        <div class="irow"><span class="ilbl">DELTA</span><span class="ival" id="inf-delta">—</span></div>
-        <div class="irow"><span class="ilbl">CUM Δ</span><span class="ival" id="inf-cumd">—</span></div>
-        <div class="irow"><span class="ilbl">BUY V</span><span class="ival up" id="inf-bvol">—</span></div>
-        <div class="irow"><span class="ilbl">SELL V</span><span class="ival dn" id="inf-svol">—</span></div>
-        <div class="irow"><span class="ilbl">SZ IMB</span><span class="ival" id="inf-imb">—</span></div>
-      </div>
-      <div class="sside">
-        <div class="stitle">Session</div>
-        <div class="irow"><span class="ilbl">Bars</span><span class="ival" id="inf-bars">—</span></div>
-        <div class="irow"><span class="ilbl">High</span><span class="ival up" id="inf-dh">—</span></div>
-        <div class="irow"><span class="ilbl">Low</span><span class="ival dn" id="inf-dl">—</span></div>
-        <div class="irow"><span class="ilbl">Range</span><span class="ival" id="inf-dr">—</span></div>
-      </div>
-      <div class="sside">
-        <div class="stitle">File Info</div>
-        <div class="irow"><span class="ilbl">Rows</span><span class="ival" id="inf-rows">—</span></div>
-        <div class="irow"><span class="ilbl">From</span><span class="ival" id="inf-first" style="font-size:9px">—</span></div>
-        <div class="irow"><span class="ilbl">To</span><span class="ival" id="inf-last" style="font-size:9px">—</span></div>
-      </div>
-    </div>
+  <!-- ════════════════════════════════════════════════════════════════
+       STRATEGY PAGE
+       ════════════════════════════════════════════════════════════════ -->
+  <div class="page active" id="strategy-page">
 
-    <div id="chart-main">
-      <div id="chart-empty">
-        <img class="icon empty-ico" src="icons/trading.png" alt=""/>
-        <div class="empty-txt">No Data Loaded</div>
-        <div class="empty-sub">Open a parquet file dan klik LOAD CHART</div>
-      </div>
-      <div id="chart-overlay" class="hidden">
-        <div class="spin"></div>
-        <div class="overlay-txt">Loading bars...</div>
-      </div>
-      <div id="chart-el"></div>
-      <div id="vol-el"></div>
-      <div id="spread-wrap" style="display:none">
-        <div class="panel-label">BID / ASK</div>
-        <div id="spread-el"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- STRATEGY PAGE -->
-  <div class="page" id="strategy-page">
     <div id="strat-toolbar">
-      <div class="stitle" style="margin:0">STRATEGY BUILDER</div>
+      <div class="stitle" style="margin:0;letter-spacing:2px">STRATEGY BUILDER</div>
       <div class="vsep"></div>
       <button class="strat-btn" id="tpl-btn">
         <img class="icon btn-icon" src="icons/book.png" alt=""/> Template
       </button>
       <button class="strat-btn" id="save-btn">
-        <img class="icon btn-icon" src="icons/dedication.png" alt=""/> Save
+        <img class="icon btn-icon" src="icons/dedication.png" alt=""/> Save .py
       </button>
       <button class="strat-btn" id="load-strat-btn">
-        <img class="icon btn-icon" src="icons/briefcase.png" alt=""/> Load
+        <img class="icon btn-icon" src="icons/briefcase.png" alt=""/> Load .py
       </button>
       <div class="spacer"></div>
       <button class="strat-btn run" id="run-strat-btn" disabled>
-        <img class="icon btn-icon btn-icon-dark" src="icons/target.png" alt=""/> Run Backtest
+        <img class="icon btn-icon btn-icon-dark" src="icons/target.png" alt=""/>
+        ▶ &nbsp;RUN BACKTEST
       </button>
     </div>
+
     <div id="strat-body">
+      <!-- Code editor -->
       <div id="code-panel">
         <textarea id="code-editor"></textarea>
       </div>
+
+      <!-- Right config panel -->
       <div id="strat-right">
+
+        <!-- ── Bar Configuration ───────────────────────── -->
         <div class="strat-section">
-          <div class="stitle">Backtest Params</div>
+          <div class="stitle">📊 Bar Configuration</div>
+
+          <div id="bar-type-grp">
+            <button class="bbt active" data-type="time">TIME</button>
+            <button class="bbt" data-type="volume">VOL</button>
+            <button class="bbt" data-type="tick">TICK</button>
+            <button class="bbt" data-type="range">RANGE</button>
+          </div>
+
+          <div class="ctrl" id="time-ctrl" style="gap:6px;margin-top:6px">
+            <label style="white-space:nowrap">Timeframe</label>
+            <select id="tf-select" style="flex:1">
+              <option value="1min">1 minute</option>
+              <option value="5min" selected>5 minutes</option>
+              <option value="15min">15 minutes</option>
+              <option value="30min">30 minutes</option>
+              <option value="1h">1 hour</option>
+            </select>
+          </div>
+
+          <div class="ctrl" id="thresh-ctrl" style="display:none;gap:6px;margin-top:6px">
+            <label id="thresh-lbl" style="white-space:nowrap;min-width:56px">Threshold</label>
+            <input type="number" id="thresh-inp" value="1000" min="1" style="flex:1"/>
+          </div>
+        </div>
+
+        <!-- ── Backtest Params ─────────────────────────── -->
+        <div class="strat-section">
+          <div class="stitle">⚙️ Backtest Params</div>
           <div id="strat-params">
             <label>Initial Capital ($)</label>
             <input type="number" id="p-capital" value="100000"/>
@@ -183,67 +149,98 @@
             <input type="number" id="p-contract" value="50"/>
           </div>
         </div>
-        <div class="strat-section">
+
+        <!-- ── Console ────────────────────────────────── -->
+        <div class="strat-section" style="flex:1;display:flex;flex-direction:column;min-height:0">
           <div class="stitle-row">
-            <div class="stitle">Console</div>
+            <div class="stitle">🖥 Console</div>
             <button class="strat-btn-sm" id="clear-console-btn">
-              <img class="icon" src="icons/trash-can.png" alt="" style="width:10px;height:10px;vertical-align:middle"/> clear
+              <img class="icon" src="icons/trash-can.png" alt=""
+                   style="width:10px;height:10px;vertical-align:middle"/> clear
             </button>
           </div>
           <div id="strat-console">Strategy editor ready.
-Write your on_bar() function and click Run Backtest.
+Load a dataset and click ▶ Run Backtest.
 </div>
         </div>
+
+        <!-- ── API Reference ──────────────────────────── -->
         <div class="strat-section">
-          <div class="stitle">API Reference</div>
+          <div class="stitle">📖 API Reference</div>
           <div class="api-ref">
             <b>on_bar(bar, ctx, history)</b><br>
-            bar.open / high / low / close / volume / time<br>
+            <span class="api-cat">OHLCV</span>
+            bar.open / high / low / close<br>
+            bar.volume / time<br>
+            <span class="api-cat">MARKET DATA</span>
             bar.bid / ask / vwap<br>
-            ctx.position  — current pos (+ long, - short)<br>
-            ctx.entry_price — entry price<br>
-            ctx.cash — available cash<br>
-            ctx.data — user dict (store state here)<br>
+            <span class="api-cat">ORDER FLOW</span>
+            bar.delta / delta_pct / cum_delta<br>
+            bar.buy_vol / sell_vol<br>
+            bar.size_imb / avg_bid_sz / avg_ask_sz<br>
+            <span class="api-cat">CONTEXT</span>
+            ctx.position — pos (+long / -short)<br>
+            ctx.entry_price — avg fill price<br>
+            ctx.cash — cash balance<br>
+            ctx.data — user state dict<br>
             ctx.bars_seen — bar index (int)<br>
-            history — list of all bars up to now<br><br>
-            <b>Return values:</b><br>
+            history — list of all bars so far<br>
+            <span class="api-cat">SIGNALS</span>
             ('BUY',  size) → open long<br>
             ('SELL', size) → open short<br>
             ('CLOSE', 0)  → close position<br>
-            None          → hold<br><br>
-            <b>Available:</b> np, math
+            None          → hold<br>
+            <span class="api-cat">AVAILABLE</span>
+            np, math
           </div>
         </div>
-      </div>
-    </div>
-  </div>
 
-  <!-- BACKTEST PAGE -->
+      </div><!-- #strat-right -->
+    </div><!-- #strat-body -->
+  </div><!-- #strategy-page -->
+
+
+  <!-- ════════════════════════════════════════════════════════════════
+       BACKTEST PAGE
+       ════════════════════════════════════════════════════════════════ -->
   <div class="page" id="backtest-page">
+
     <div id="bt-toolbar">
-      <div class="stitle" style="margin:0">BACKTEST RESULTS</div>
+      <div class="stitle" style="margin:0;letter-spacing:2px">BACKTEST RESULTS</div>
       <div class="vsep"></div>
       <button id="bt-run-btn" disabled>
-        <img class="icon btn-icon btn-icon-dark" src="icons/target.png" alt=""/> RUN BACKTEST
+        <img class="icon btn-icon btn-icon-dark" src="icons/target.png" alt=""/>
+        ▶ &nbsp;RUN BACKTEST
       </button>
       <div id="bt-status">no results yet — write a strategy and run</div>
     </div>
+
     <div id="bt-body">
+      <!-- Stats sidebar -->
       <div id="bt-sidebar">
-        <div id="bt-hint" style="color:var(--text3);font-size:10px;padding:4px 0">
-          Run a backtest to see stats here.
+        <div id="bt-hint">
+          Run a backtest to see performance stats here.
         </div>
         <div id="bt-stats-wrap"></div>
       </div>
+
+      <!-- Charts + trades -->
       <div id="bt-charts">
         <div id="equity-chart"></div>
         <div id="dd-chart"></div>
         <div id="trades-panel">
+          <div class="panel-label">TRADE LOG</div>
           <table id="trades-table">
             <thead>
               <tr>
-                <th>#</th><th>SIDE</th><th>ENTRY TIME</th><th>EXIT TIME</th>
-                <th>IN</th><th>OUT</th><th>SZ</th><th>PNL</th>
+                <th>#</th>
+                <th>SIDE</th>
+                <th>ENTRY TIME</th>
+                <th>EXIT TIME</th>
+                <th>ENTRY</th>
+                <th>EXIT</th>
+                <th>SZ</th>
+                <th>PNL</th>
               </tr>
             </thead>
             <tbody id="trades-body"></tbody>
@@ -251,20 +248,25 @@ Write your on_bar() function and click Run Backtest.
         </div>
       </div>
     </div>
-  </div>
+  </div><!-- #backtest-page -->
 
-  <!-- ANALYTICS PAGE -->
+
+  <!-- ════════════════════════════════════════════════════════════════
+       ANALYTICS PAGE
+       ════════════════════════════════════════════════════════════════ -->
   <div class="page" id="analytics-page">
+
     <div id="an-toolbar">
-      <div class="stitle" style="margin:0">ANALYTICS & MONTE CARLO</div>
+      <div class="stitle" style="margin:0;letter-spacing:2px">ANALYTICS &amp; MONTE CARLO</div>
       <div class="spacer"></div>
       <div id="mc-stats-bar"></div>
     </div>
+
     <div id="an-body">
       <div class="an-panel">
         <div class="an-panel-title">
           <img class="icon panel-icon" src="icons/consistency.png" alt=""/>
-          Monte Carlo Equity Paths (100 sim)
+          Monte Carlo Equity Paths (100 sims)
         </div>
         <div class="an-chart" id="mc-paths-chart"></div>
       </div>
@@ -290,9 +292,10 @@ Write your on_bar() function and click Run Backtest.
         <div class="an-chart" id="pnl-dist-chart"></div>
       </div>
     </div>
-  </div>
+  </div><!-- #analytics-page -->
 
 </div><!-- #body -->
+
 <script src="app.js"></script>
 </body>
 </html>
