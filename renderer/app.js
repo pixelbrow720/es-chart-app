@@ -220,7 +220,7 @@ function renderChart(bars, trades) {
   const dates  = bars.map(b => new Date(b.time * 1000).toISOString())
   const ohlc   = bars.map(b => [b.open, b.close, b.low, b.high])
   const vols   = bars.map(b => b.volume)
-  const colors = bars.map(b => b.close >= b.open ? '#00e676' : '#ff1744')
+  const colors = bars.map(b => b.close >= b.open ? '#8670ff' : '#ff0095')
 
   // Indicators
   const closes = bars.map(b => b.close)
@@ -247,7 +247,7 @@ function renderChart(bars, trades) {
       if (ei >= 0) markPoints.push({
         coord: [ei, t.side === 'LONG' ? bars[ei].low * 0.9999 : bars[ei].high * 1.0001],
         value: t.side === 'LONG' ? '▲' : '▼',
-        itemStyle: { color: t.side === 'LONG' ? '#00e676' : '#ff1744' },
+        itemStyle: { color: t.side === 'LONG' ? '#8670ff' : '#ff0095' },
         label: { show: true, color: t.side === 'LONG' ? '#00e676' : '#ff1744', fontSize: 10 }
       })
       if (xi >= 0) markPoints.push({
@@ -262,7 +262,7 @@ function renderChart(bars, trades) {
   const mainSeries = [
     {
       type: 'candlestick', data: ohlc, barMaxWidth: 14,
-      itemStyle: { color: '#00e676', color0: '#ff1744', borderColor: '#00e676', borderColor0: '#ff1744' },
+      itemStyle: { color: '#8670ff', color0: '#ff0095', borderColor: '#8670ff', borderColor0: '#ff0095' },
       markPoint: markPoints.length ? { data: markPoints, symbol: 'circle', symbolSize: 1 } : undefined,
     }
   ]
@@ -832,40 +832,73 @@ $('clear-console-btn').addEventListener('click', () => {
 })
 
 // ── DEFAULT STRATEGY TEMPLATE ────────────────────────────────────────────
-const DEFAULT_STRATEGY = `# ── ES TBBO Strategy Template ──────────────────────────────
-# on_bar() dipanggil tiap bar. Return signal untuk trade.
-#
-# bar     : {time, open, high, low, close, volume, bid, ask, vwap}
-# ctx     : {position, entry_price, cash, data, bars_seen}
-# history : list semua bar sebelumnya (termasuk bar saat ini)
+const DEFAULT_STRATEGY = `# ── RSI + EMA Trend Strategy ───────────────────────────────────
+# Entry : EMA cross + RSI filter (tidak oversold/overbought ekstrem)
+# Exit  : EMA cross balik atau RSI ekstrem
 
 def initialize(ctx):
-    ctx.data['fast'] = 10
-    ctx.data['slow'] = 30
+    ctx.data['ema_fast']   = 9
+    ctx.data['ema_slow']   = 21
+    ctx.data['rsi_period'] = 14
+    ctx.data['rsi_ob']     = 70   # overbought
+    ctx.data['rsi_os']     = 30   # oversold
+
+def _ema(prices, period):
+    k, prev = 2 / (period + 1), prices[0]
+    for p in prices[1:]:
+        prev = p * k + prev * (1 - k)
+    return prev
+
+def _rsi(prices, period):
+    if len(prices) < period + 1:
+        return 50.0
+    diffs  = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+    recent = diffs[-period:]
+    gains  = sum(d for d in recent if d > 0) / period
+    losses = sum(-d for d in recent if d < 0) / period
+    if losses == 0:
+        return 100.0
+    rs = gains / losses
+    return 100 - (100 / (1 + rs))
 
 def on_bar(bar, ctx, history):
-    fast = ctx.data['fast']
-    slow = ctx.data['slow']
+    fast   = ctx.data['ema_fast']
+    slow   = ctx.data['ema_slow']
+    rp     = ctx.data['rsi_period']
+    ob, os = ctx.data['rsi_ob'], ctx.data['rsi_os']
 
-    if ctx.bars_seen < slow:
+    min_bars = slow + rp + 2
+    if ctx.bars_seen < min_bars:
         return None
 
-    closes       = [h['close'] for h in history]
-    ma_fast      = sum(closes[-fast:]) / fast
-    ma_slow      = sum(closes[-slow:]) / slow
-    prev_closes  = [h['close'] for h in history[:-1]]
-    prev_fast    = sum(prev_closes[-fast:]) / fast
-    prev_slow    = sum(prev_closes[-slow:]) / slow
+    closes = [h['close'] for h in history]
 
-    # Golden Cross → BUY
-    if prev_fast <= prev_slow and ma_fast > ma_slow:
-        if ctx.position <= 0:
-            return ('BUY', 1)
+    ema_f  = _ema(closes[-fast*3:],  fast)
+    ema_s  = _ema(closes[-slow*3:],  slow)
+    rsi    = _rsi(closes, rp)
 
-    # Death Cross → SELL
-    elif prev_fast >= prev_slow and ma_fast < ma_slow:
-        if ctx.position >= 0:
-            return ('SELL', 1)
+    prev_c   = closes[:-1]
+    ema_f_p  = _ema(prev_c[-fast*3:], fast)
+    ema_s_p  = _ema(prev_c[-slow*3:], slow)
+
+    cross_up   = ema_f_p <= ema_s_p and ema_f > ema_s
+    cross_down = ema_f_p >= ema_s_p and ema_f < ema_s
+
+    # Entry Long: golden cross + RSI tidak overbought
+    if cross_up and rsi < ob and ctx.position <= 0:
+        return ('BUY', 1)
+
+    # Entry Short: death cross + RSI tidak oversold
+    if cross_down and rsi > os and ctx.position >= 0:
+        return ('SELL', 1)
+
+    # Exit Long jika RSI overbought
+    if ctx.position > 0 and rsi >= ob:
+        return ('CLOSE', 0)
+
+    # Exit Short jika RSI oversold
+    if ctx.position < 0 and rsi <= os:
+        return ('CLOSE', 0)
 
     return None
 `

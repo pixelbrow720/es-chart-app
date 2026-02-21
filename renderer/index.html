@@ -17,7 +17,10 @@
 <div id="topbar">
   <div id="logo">ES·TBBO <em>SUITE</em></div>
   <div class="vsep"></div>
-  <button id="file-btn">📂 Open File</button>
+  <button id="file-btn">
+    <img class="icon" src="icons/briefcase.png" alt="open"/>
+    Open File
+  </button>
   <div id="file-name">— no file loaded —</div>
   <div class="vsep"></div>
   <div class="ctrl"><label>SYM</label>
@@ -49,7 +52,6 @@
     <input type="number" id="thresh-inp" value="1000" min="1" style="width:80px"/>
   </div>
   <div class="vsep"></div>
-  <!-- Indicator toggles -->
   <div class="ctrl" id="indicator-ctrl">
     <button class="ind-btn ind-active" id="toggle-vwap" title="VWAP overlay">VWAP</button>
     <button class="ind-btn" id="toggle-ema" title="EMA overlay">EMA</button>
@@ -67,17 +69,24 @@
 
 <!-- TABS -->
 <div id="tabs">
-  <button class="tab active" data-tab="chart">📊 Chart</button>
-  <button class="tab" data-tab="strategy">⚙ Strategy</button>
-  <button class="tab" data-tab="backtest">▶ Backtest</button>
-  <button class="tab" data-tab="analytics">📈 Analytics</button>
+  <button class="tab active" data-tab="chart">
+    <img class="icon tab-icon" src="icons/chart.png" alt=""/> Chart
+  </button>
+  <button class="tab" data-tab="strategy">
+    <img class="icon tab-icon" src="icons/settings-gears.png" alt=""/> Strategy
+  </button>
+  <button class="tab" data-tab="backtest">
+    <img class="icon tab-icon" src="icons/target.png" alt=""/> Backtest
+  </button>
+  <button class="tab" data-tab="analytics">
+    <img class="icon tab-icon" src="icons/analytics.png" alt=""/> Analytics
+  </button>
 </div>
 
 <div id="body">
 
-  <!-- ── CHART PAGE ──────────────────────────────────────────────── -->
+  <!-- CHART PAGE -->
   <div class="page active" id="chart-page">
-
     <div id="chart-sidebar">
       <div class="sside">
         <div class="stitle">Bar Info</div>
@@ -112,7 +121,7 @@
 
     <div id="chart-main">
       <div id="chart-empty">
-        <div class="empty-ico">📊</div>
+        <img class="icon empty-ico" src="icons/trading.png" alt=""/>
         <div class="empty-txt">No Data Loaded</div>
         <div class="empty-sub">Open a parquet file dan klik LOAD CHART</div>
       </div>
@@ -127,19 +136,26 @@
         <div id="spread-el"></div>
       </div>
     </div>
-
   </div>
 
-  <!-- ── STRATEGY PAGE ───────────────────────────────────────────── -->
+  <!-- STRATEGY PAGE -->
   <div class="page" id="strategy-page">
     <div id="strat-toolbar">
       <div class="stitle" style="margin:0">STRATEGY BUILDER</div>
       <div class="vsep"></div>
-      <button class="strat-btn" id="tpl-btn">📋 Template</button>
-      <button class="strat-btn" id="save-btn">💾 Save</button>
-      <button class="strat-btn" id="load-strat-btn">📂 Load</button>
+      <button class="strat-btn" id="tpl-btn">
+        <img class="icon btn-icon" src="icons/book.png" alt=""/> Template
+      </button>
+      <button class="strat-btn" id="save-btn">
+        <img class="icon btn-icon" src="icons/dedication.png" alt=""/> Save
+      </button>
+      <button class="strat-btn" id="load-strat-btn">
+        <img class="icon btn-icon" src="icons/briefcase.png" alt=""/> Load
+      </button>
       <div class="spacer"></div>
-      <button class="strat-btn run" id="run-strat-btn" disabled>▶ Run Backtest</button>
+      <button class="strat-btn run" id="run-strat-btn" disabled>
+        <img class="icon btn-icon btn-icon-dark" src="icons/target.png" alt=""/> Run Backtest
+      </button>
     </div>
     <div id="strat-body">
       <div id="code-panel">
@@ -162,7 +178,9 @@
         <div class="strat-section">
           <div class="stitle-row">
             <div class="stitle">Console</div>
-            <button class="strat-btn-sm" id="clear-console-btn">clear</button>
+            <button class="strat-btn-sm" id="clear-console-btn">
+              <img class="icon" src="icons/trash-can.png" alt="" style="width:10px;height:10px;vertical-align:middle"/> clear
+            </button>
           </div>
           <div id="strat-console">Strategy editor ready.
 Write your on_bar() function and click Run Backtest.
@@ -192,12 +210,14 @@ Write your on_bar() function and click Run Backtest.
     </div>
   </div>
 
-  <!-- ── BACKTEST PAGE ───────────────────────────────────────────── -->
+  <!-- BACKTEST PAGE -->
   <div class="page" id="backtest-page">
     <div id="bt-toolbar">
       <div class="stitle" style="margin:0">BACKTEST RESULTS</div>
       <div class="vsep"></div>
-      <button id="bt-run-btn" disabled>▶ RUN BACKTEST</button>
+      <button id="bt-run-btn" disabled>
+        <img class="icon btn-icon btn-icon-dark" src="icons/target.png" alt=""/> RUN BACKTEST
+      </button>
       <div id="bt-status">no results yet — write a strategy and run</div>
     </div>
     <div id="bt-body">
@@ -225,7 +245,7 @@ Write your on_bar() function and click Run Backtest.
     </div>
   </div>
 
-  <!-- ── ANALYTICS PAGE ─────────────────────────────────────────── -->
+  <!-- ANALYTICS PAGE -->
   <div class="page" id="analytics-page">
     <div id="an-toolbar">
       <div class="stitle" style="margin:0">ANALYTICS & MONTE CARLO</div>
@@ -234,26 +254,37 @@ Write your on_bar() function and click Run Backtest.
     </div>
     <div id="an-body">
       <div class="an-panel">
-        <div class="an-panel-title">🎲 Monte Carlo Equity Paths (100 sim)</div>
+        <div class="an-panel-title">
+          <img class="icon panel-icon" src="icons/consistency.png" alt=""/>
+          Monte Carlo Equity Paths (100 sim)
+        </div>
         <div class="an-chart" id="mc-paths-chart"></div>
       </div>
       <div class="an-panel">
-        <div class="an-panel-title">📊 Final Equity Distribution</div>
+        <div class="an-panel-title">
+          <img class="icon panel-icon" src="icons/balance.png" alt=""/>
+          Final Equity Distribution
+        </div>
         <div class="an-chart" id="mc-dist-chart"></div>
       </div>
       <div class="an-panel">
-        <div class="an-panel-title">📉 Max Drawdown Distribution</div>
+        <div class="an-panel-title">
+          <img class="icon panel-icon" src="icons/trend.png" alt=""/>
+          Max Drawdown Distribution
+        </div>
         <div class="an-chart" id="mc-dd-chart"></div>
       </div>
       <div class="an-panel">
-        <div class="an-panel-title">💰 Trade PnL Distribution</div>
+        <div class="an-panel-title">
+          <img class="icon panel-icon" src="icons/rise.png" alt=""/>
+          Trade PnL Distribution
+        </div>
         <div class="an-chart" id="pnl-dist-chart"></div>
       </div>
     </div>
   </div>
 
 </div><!-- #body -->
-
 <script src="app.js"></script>
 </body>
 </html>
