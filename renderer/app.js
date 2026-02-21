@@ -313,9 +313,9 @@ function renderChart(bars, trades) {
     ],
     tooltip: {
       trigger: 'axis',
-      axisPointer: { type: 'cross', crossStyle: { color: '#252550' } },
-      backgroundColor: '#0d0d1c', borderColor: '#252550',
-      textStyle: { color: '#dde0ff', fontFamily: 'JetBrains Mono', fontSize: 11 },
+      axisPointer: { type: 'cross', crossStyle: { color: '#2a2a2a' } },
+      backgroundColor: '#111111', borderColor: '#2a2a2a',
+      textStyle: { color: '#e8e8e8', fontFamily: 'JetBrains Mono', fontSize: 11 },
       formatter: params => {
         const c = params[0]; if (!c) return ''
         const [o, cl, l, h] = c.value
@@ -324,15 +324,24 @@ function renderChart(bars, trades) {
         const bid = bar?.bid, ask = bar?.ask
         const spread = (bid && ask) ? (ask - bid).toFixed(2) : '—'
         const chg = ((cl - o) / o * 100).toFixed(2)
-        const col = cl >= o ? '#00e676' : '#ff1744'
-        return `<div style="font-size:10px;line-height:2;min-width:180px">
-          <div style="color:#7070a0;border-bottom:1px solid #252550;margin-bottom:4px;padding-bottom:2px">
+        const col   = cl >= o ? '#8670ff' : '#ff0095'
+        const delta = bar?.delta ?? '—'
+        const dpct  = bar?.delta_pct ?? '—'
+        const imb   = bar?.size_imb != null ? (bar.size_imb * 100).toFixed(1) + '%' : '—'
+        const cum_d = bar?.cum_delta ?? '—'
+        const dcol  = (bar?.delta || 0) >= 0 ? '#8670ff' : '#ff0095'
+        const cdcol = (bar?.cum_delta || 0) >= 0 ? '#8670ff' : '#ff0095'
+        return `<div style="font-size:10px;line-height:2;min-width:210px">
+          <div style="color:#444;border-bottom:1px solid #2a2a2a;margin-bottom:4px;padding-bottom:2px">
             ${new Date(c.axisValue).toLocaleString()}
           </div>
-          <div>O <b>${o}</b>　H <b style="color:#00e676">${h}</b></div>
-          <div>L <b style="color:#ff1744">${l}</b>　C <b>${cl}</b></div>
+          <div>O <b>${o}</b>　H <b style="color:#8670ff">${h}</b></div>
+          <div>L <b style="color:#ff0095">${l}</b>　C <b>${cl}</b></div>
           <div>CHG <b style="color:${col}">${cl>=o?'+':''}${chg}%</b>　VOL <b>${v.toLocaleString()}</b></div>
-          ${bid ? `<div style="color:#7070a0;font-size:9px;margin-top:2px">BID ${bid}　ASK ${ask}　SPR ${spread}</div>` : ''}
+          <div style="border-top:1px solid #222;margin-top:3px;padding-top:3px;color:#444;font-size:9px;letter-spacing:1px">ORDER FLOW</div>
+          <div>Δ <b style="color:${dcol}">${delta}</b>　Δ% <b style="color:${dcol}">${dpct}%</b></div>
+          <div>CumΔ <b style="color:${cdcol}">${cum_d}</b>　Imb <b>${imb}</b></div>
+          ${bid ? `<div style="color:#444;font-size:9px">BID ${bid}　ASK ${ask}　SPR ${spread}</div>` : ''}
         </div>`
       }
     },
@@ -413,6 +422,19 @@ function updateBarInfo(bar) {
     $('inf-spread').textContent = (bar.ask - bar.bid).toFixed(2)
   }
   if (bar.vwap) $('inf-vwap').textContent = fmtPrice(bar.vwap)
+  // orderflow
+  if (bar.delta !== undefined) {
+    const dEl = $('inf-delta')
+    if (dEl) { dEl.textContent = bar.delta; dEl.className = `ival ${bar.delta >= 0 ? 'up' : 'dn'}` }
+  }
+  if ($('inf-bvol'))   $('inf-bvol').textContent   = bar.buy_vol?.toLocaleString()  ?? '—'
+  if ($('inf-svol'))   $('inf-svol').textContent   = bar.sell_vol?.toLocaleString() ?? '—'
+  if ($('inf-imb'))    $('inf-imb').textContent    = bar.size_imb != null ? (bar.size_imb * 100).toFixed(1) + '%' : '—'
+  if ($('inf-cumd')) {
+    const cdEl = $('inf-cumd')
+    cdEl.textContent = bar.cum_delta ?? '—'
+    cdEl.className = `ival ${(bar.cum_delta || 0) >= 0 ? 'up' : 'dn'}`
+  }
 }
 
 function updateSessionInfo(bars) {
@@ -832,73 +854,102 @@ $('clear-console-btn').addEventListener('click', () => {
 })
 
 // ── DEFAULT STRATEGY TEMPLATE ────────────────────────────────────────────
-const DEFAULT_STRATEGY = `# ── RSI + EMA Trend Strategy ───────────────────────────────────
-# Entry : EMA cross + RSI filter (tidak oversold/overbought ekstrem)
-# Exit  : EMA cross balik atau RSI ekstrem
+const DEFAULT_STRATEGY = `# ── Order Flow Imbalance Strategy ──────────────────────────────
+#
+# Konsep:
+#   - DELTA  = buy_vol - sell_vol per bar (positive = buying pressure)
+#   - SIZE_IMB = (bid_sz - ask_sz) / (bid_sz + ask_sz)
+#               +1 = bid stack jauh lebih besar (bullish support)
+#               -1 = ask stack jauh lebih besar (bearish resistance)
+#   - CUM_DELTA = kumulatif delta (divergence vs price = signal kuat)
+#
+# Entry Logic:
+#   LONG  : delta positif kuat + size_imb > threshold + harga di atas VWAP
+#   SHORT : delta negatif kuat + size_imb < -threshold + harga di bawah VWAP
+#
+# Exit Logic:
+#   - Delta berbalik arah 2 bar berturut
+#   - Stop loss 6 ticks (1.5 points ES)
+#   - Take profit 12 ticks (3 points ES)
 
 def initialize(ctx):
-    ctx.data['ema_fast']   = 9
-    ctx.data['ema_slow']   = 21
-    ctx.data['rsi_period'] = 14
-    ctx.data['rsi_ob']     = 70   # overbought
-    ctx.data['rsi_os']     = 30   # oversold
-
-def _ema(prices, period):
-    k, prev = 2 / (period + 1), prices[0]
-    for p in prices[1:]:
-        prev = p * k + prev * (1 - k)
-    return prev
-
-def _rsi(prices, period):
-    if len(prices) < period + 1:
-        return 50.0
-    diffs  = [prices[i] - prices[i-1] for i in range(1, len(prices))]
-    recent = diffs[-period:]
-    gains  = sum(d for d in recent if d > 0) / period
-    losses = sum(-d for d in recent if d < 0) / period
-    if losses == 0:
-        return 100.0
-    rs = gains / losses
-    return 100 - (100 / (1 + rs))
+    ctx.data['delta_lookback']  = 3      # bars untuk smooth delta
+    ctx.data['imb_threshold']   = 0.20   # min size imbalance untuk entry
+    ctx.data['delta_min_pct']   = 15     # min |delta_pct| untuk entry
+    ctx.data['stop_ticks']      = 1.5    # stop loss dalam points
+    ctx.data['target_ticks']    = 3.0    # take profit dalam points
+    ctx.data['consec_reversal'] = 2      # bars reversal untuk exit
 
 def on_bar(bar, ctx, history):
-    fast   = ctx.data['ema_fast']
-    slow   = ctx.data['ema_slow']
-    rp     = ctx.data['rsi_period']
-    ob, os = ctx.data['rsi_ob'], ctx.data['rsi_os']
+    lb   = ctx.data['delta_lookback']
+    ith  = ctx.data['imb_threshold']
+    dpct = ctx.data['delta_min_pct']
+    sl   = ctx.data['stop_ticks']
+    tp   = ctx.data['target_ticks']
+    rev  = ctx.data['consec_reversal']
 
-    min_bars = slow + rp + 2
-    if ctx.bars_seen < min_bars:
+    if ctx.bars_seen < lb + 2:
         return None
 
-    closes = [h['close'] for h in history]
+    close    = bar['close']
+    delta    = bar.get('delta', 0) or 0
+    dpct_val = bar.get('delta_pct', 0) or 0
+    size_imb = bar.get('size_imb', 0) or 0
+    vwap     = bar.get('vwap') or close
+    cum_d    = bar.get('cum_delta', 0) or 0
 
-    ema_f  = _ema(closes[-fast*3:],  fast)
-    ema_s  = _ema(closes[-slow*3:],  slow)
-    rsi    = _rsi(closes, rp)
+    # Smooth delta: rata-rata delta_pct beberapa bar terakhir
+    recent = history[-lb:]
+    avg_dpct = sum((h.get('delta_pct', 0) or 0) for h in recent) / lb
 
-    prev_c   = closes[:-1]
-    ema_f_p  = _ema(prev_c[-fast*3:], fast)
-    ema_s_p  = _ema(prev_c[-slow*3:], slow)
+    # ── EXIT dulu sebelum cek entry ────────────────────────────────
+    if ctx.position != 0:
+        ep = ctx.entry_price
 
-    cross_up   = ema_f_p <= ema_s_p and ema_f > ema_s
-    cross_down = ema_f_p >= ema_s_p and ema_f < ema_s
+        # Stop loss / take profit
+        if ctx.position > 0:
+            if close <= ep - sl:  return ('CLOSE', 0)   # stop
+            if close >= ep + tp:  return ('CLOSE', 0)   # target
 
-    # Entry Long: golden cross + RSI tidak overbought
-    if cross_up and rsi < ob and ctx.position <= 0:
+        if ctx.position < 0:
+            if close >= ep + sl:  return ('CLOSE', 0)   # stop
+            if close <= ep - tp:  return ('CLOSE', 0)   # target
+
+        # Exit jika delta berbalik N bar berturut
+        if ctx.position > 0:
+            consec_neg = all((h.get('delta', 0) or 0) < 0 for h in history[-rev:])
+            if consec_neg:
+                return ('CLOSE', 0)
+
+        if ctx.position < 0:
+            consec_pos = all((h.get('delta', 0) or 0) > 0 for h in history[-rev:])
+            if consec_pos:
+                return ('CLOSE', 0)
+
+        return None
+
+    # ── ENTRY ──────────────────────────────────────────────────────
+    # LONG: buying pressure dominan + bid stack besar + harga atas VWAP
+    long_signal = (
+        avg_dpct    >  dpct       and   # delta positif kuat
+        size_imb    >  ith        and   # bid stack lebih besar
+        close       >= vwap       and   # di atas VWAP
+        delta       >  0                # bar ini juga positif
+    )
+
+    # SHORT: selling pressure dominan + ask stack besar + harga bawah VWAP
+    short_signal = (
+        avg_dpct    < -dpct       and   # delta negatif kuat
+        size_imb    < -ith        and   # ask stack lebih besar
+        close       <= vwap       and   # di bawah VWAP
+        delta       <  0                # bar ini juga negatif
+    )
+
+    if long_signal:
         return ('BUY', 1)
 
-    # Entry Short: death cross + RSI tidak oversold
-    if cross_down and rsi > os and ctx.position >= 0:
+    if short_signal:
         return ('SELL', 1)
-
-    # Exit Long jika RSI overbought
-    if ctx.position > 0 and rsi >= ob:
-        return ('CLOSE', 0)
-
-    # Exit Short jika RSI oversold
-    if ctx.position < 0 and rsi <= os:
-        return ('CLOSE', 0)
 
     return None
 `

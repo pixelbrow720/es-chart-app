@@ -4,7 +4,6 @@ from pydantic import BaseModel
 from typing import Optional
 import duckdb, os, math, traceback
 import numpy as np
-import builtins
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -14,36 +13,89 @@ def ensure_file(path):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail=f"File tidak ditemukan: {path}")
 
-def clean_ohlcv(rows, has_extras=False):
+def _safe(v):
+    if v is None: return None
+    try:
+        f = float(v)
+        return None if math.isnan(f) or math.isinf(f) else f
+    except: return None
+
+def clean_ohlcv(rows):
+    """
+    Expected columns per row:
+    0:time 1:open 2:high 3:low 4:close 5:volume
+    6:bid 7:ask 8:vwap
+    9:buy_vol 10:sell_vol
+    11:avg_bid_sz 12:avg_ask_sz 13:max_bid_sz 14:max_ask_sz
+    """
     result = []
     for r in rows:
-        if any(v is None or (isinstance(v, float) and math.isnan(v)) for v in r[:5]):
+        if any(_safe(r[i]) is None for i in range(1, 5)):
             continue
+        vol      = _safe(r[5]) or 0
+        buy_vol  = _safe(r[9])  or 0
+        sell_vol = _safe(r[10]) or 0
+        delta    = round(buy_vol - sell_vol, 2)
+        cum_delta = 0  # filled downstream
+
         bar = {
-            "time":   int(r[0]),
-            "open":   float(r[1]),
-            "high":   float(r[2]),
-            "low":    float(r[3]),
-            "close":  float(r[4]),
-            "volume": float(r[5] or 0),
+            "time":       int(r[0]),
+            "open":       round(float(r[1]), 4),
+            "high":       round(float(r[2]), 4),
+            "low":        round(float(r[3]), 4),
+            "close":      round(float(r[4]), 4),
+            "volume":     round(vol, 2),
+            "bid":        round(_safe(r[6]),  4) if _safe(r[6])  else None,
+            "ask":        round(_safe(r[7]),  4) if _safe(r[7])  else None,
+            "vwap":       round(_safe(r[8]),  4) if _safe(r[8])  else None,
+            # ── orderflow ──────────────────────────────────────────
+            "buy_vol":    round(buy_vol,  2),
+            "sell_vol":   round(sell_vol, 2),
+            "delta":      delta,
+            "delta_pct":  round(delta / vol * 100, 2) if vol else 0,
+            "avg_bid_sz": round(_safe(r[11]), 2) if _safe(r[11]) else None,
+            "avg_ask_sz": round(_safe(r[12]), 2) if _safe(r[12]) else None,
+            "max_bid_sz": round(_safe(r[13]), 2) if _safe(r[13]) else None,
+            "max_ask_sz": round(_safe(r[14]), 2) if _safe(r[14]) else None,
+            # bid-ask size imbalance  (+1 = full bid, -1 = full ask)
+            "size_imb":   None,
         }
-        if has_extras and len(r) > 6:
-            bar["bid"]  = round(float(r[6]), 4) if r[6] is not None and not math.isnan(float(r[6])) else None
-            bar["ask"]  = round(float(r[7]), 4) if r[7] is not None and not math.isnan(float(r[7])) else None
-            bar["vwap"] = round(float(r[8]), 4) if r[8] is not None and not math.isnan(float(r[8])) else None
+        # size imbalance = (bid_sz - ask_sz) / (bid_sz + ask_sz)
+        b = bar["avg_bid_sz"]; a = bar["avg_ask_sz"]
+        if b and a and (b + a) > 0:
+            bar["size_imb"] = round((b - a) / (b + a), 4)
+
         result.append(bar)
+
+    # cumulative delta
+    cd = 0
+    for bar in result:
+        cd += bar["delta"]
+        bar["cum_delta"] = round(cd, 2)
+
     return result
 
-def date_where(symbol, date_from, date_to, extra=""):
-    # FIX: filter action='T' (trades only — exclude quote-only rows)
-    w = f"WHERE symbol='{symbol}' AND action='T'{extra}"
-    if date_from:
-        w += f" AND ts_recv >= '{date_from} 00:00:00+00'"
-    if date_to:
-        w += f" AND ts_recv <= '{date_to} 23:59:59+00'"
+
+def date_where(symbol, date_from, date_to):
+    w = f"WHERE symbol='{symbol}' AND action='T'"
+    if date_from: w += f" AND ts_recv >= '{date_from} 00:00:00+00'"
+    if date_to:   w += f" AND ts_recv <= '{date_to} 23:59:59+00'"
     return w
 
-# ── FIX: was @app.post — frontend calls GET ──────────────────────────────
+OF_COLS = """
+    SUM(size)                                                   AS vol,
+    AVG(bid_px_00)                                              AS bid,
+    AVG(ask_px_00)                                              AS ask,
+    SUM(price * size) / NULLIF(SUM(size), 0)                   AS vwap,
+    SUM(CASE WHEN side='B' THEN size ELSE 0 END)               AS buy_vol,
+    SUM(CASE WHEN side='A' THEN size ELSE 0 END)               AS sell_vol,
+    AVG(bid_sz_00)                                              AS avg_bid_sz,
+    AVG(ask_sz_00)                                              AS avg_ask_sz,
+    MAX(bid_sz_00)                                              AS max_bid_sz,
+    MAX(ask_sz_00)                                              AS max_ask_sz
+"""
+
+# ── LOAD / SYMBOLS ────────────────────────────────────────────────────────
 @app.get("/load")
 def load_file(path: str = Query(...)):
     ensure_file(path)
@@ -51,166 +103,155 @@ def load_file(path: str = Query(...)):
         SELECT COUNT(*), MIN(ts_recv), MAX(ts_recv), COUNT(DISTINCT symbol)
         FROM read_parquet('{path}')
     """).fetchone()
-    return {
-        "rows":    info[0],
-        "first":   str(info[1]),
-        "last":    str(info[2]),
-        "symbols": info[3],
-        "path":    path,
-    }
+    return {"rows": info[0], "first": str(info[1]), "last": str(info[2]), "symbols": info[3], "path": path}
 
 @app.get("/symbols")
 def get_symbols(path: str = Query(...)):
     ensure_file(path)
     rows = con.execute(f"""
-        SELECT symbol, COUNT(*) as cnt
-        FROM read_parquet('{path}')
-        WHERE action='T'
-        GROUP BY symbol ORDER BY 2 DESC
+        SELECT symbol, COUNT(*) as cnt FROM read_parquet('{path}')
+        WHERE action='T' GROUP BY symbol ORDER BY 2 DESC
     """).fetchall()
     return [{"symbol": r[0], "count": r[1]} for r in rows]
 
+# ── TIME BARS ─────────────────────────────────────────────────────────────
 @app.get("/bars/time")
 def time_bars(
-    path:      str           = Query(...),
-    symbol:    str           = Query("ESM4"),
-    interval:  str           = Query("5min"),
-    date_from: Optional[str] = Query(None),
-    date_to:   Optional[str] = Query(None),
+    path: str = Query(...), symbol: str = Query("ESM4"),
+    interval: str = Query("5min"),
+    date_from: Optional[str] = Query(None), date_to: Optional[str] = Query(None),
 ):
     ensure_file(path)
     w  = date_where(symbol, date_from, date_to)
     im = {"1min":"1 minute","5min":"5 minutes","15min":"15 minutes","30min":"30 minutes","1h":"1 hour"}
     di = im.get(interval, "5 minutes")
-
     rows = con.execute(f"""
         SELECT
             epoch(time_bucket(INTERVAL '{di}', ts_recv::TIMESTAMPTZ)) AS t,
-            FIRST(price ORDER BY ts_recv)                               AS o,
-            MAX(price)                                                  AS h,
-            MIN(price)                                                  AS l,
-            LAST(price ORDER BY ts_recv)                                AS c,
-            SUM(size)                                                   AS vol,
-            AVG(bid_px_00)                                              AS bid,
-            AVG(ask_px_00)                                              AS ask,
-            SUM(price * size) / NULLIF(SUM(size), 0)                   AS vwap
+            FIRST(price ORDER BY ts_recv) AS o,
+            MAX(price) AS h, MIN(price) AS l,
+            LAST(price ORDER BY ts_recv) AS c,
+            {OF_COLS}
         FROM read_parquet('{path}') {w}
         GROUP BY 1 ORDER BY 1
     """).fetchall()
-    return clean_ohlcv(rows, has_extras=True)
+    return clean_ohlcv(rows)
 
-@app.get("/bars/volume")
-def volume_bars(
-    path:      str           = Query(...),
-    symbol:    str           = Query("ESM4"),
-    threshold: int           = Query(1000),
-    date_from: Optional[str] = Query(None),
-    date_to:   Optional[str] = Query(None),
-):
-    ensure_file(path)
-    w = date_where(symbol, date_from, date_to)
-    rows = con.execute(f"""
-        SELECT ts_recv, price, size, bid_px_00, ask_px_00
+# ── VOLUME / TICK / RANGE BARS ────────────────────────────────────────────
+def _fetch_of(path, w):
+    """Fetch all tick-level orderflow data for aggregation."""
+    return con.execute(f"""
+        SELECT ts_recv, price, size, side, bid_px_00, ask_px_00, bid_sz_00, ask_sz_00
         FROM read_parquet('{path}') {w} ORDER BY ts_recv
     """).fetchall()
-    return _agg(rows, "volume", threshold)
-
-@app.get("/bars/tick")
-def tick_bars(
-    path:      str           = Query(...),
-    symbol:    str           = Query("ESM4"),
-    threshold: int           = Query(500),
-    date_from: Optional[str] = Query(None),
-    date_to:   Optional[str] = Query(None),
-):
-    ensure_file(path)
-    w = date_where(symbol, date_from, date_to)
-    rows = con.execute(f"""
-        SELECT ts_recv, price, size, bid_px_00, ask_px_00
-        FROM read_parquet('{path}') {w} ORDER BY ts_recv
-    """).fetchall()
-    return _agg(rows, "tick", threshold)
-
-@app.get("/bars/range")
-def range_bars(
-    path:      str           = Query(...),
-    symbol:    str           = Query("ESM4"),
-    threshold: float         = Query(4.0),
-    date_from: Optional[str] = Query(None),
-    date_to:   Optional[str] = Query(None),
-):
-    ensure_file(path)
-    w = date_where(symbol, date_from, date_to)
-    rows = con.execute(f"""
-        SELECT ts_recv, price, size, bid_px_00, ask_px_00
-        FROM read_parquet('{path}') {w} ORDER BY ts_recv
-    """).fetchall()
-    return _agg(rows, "range", threshold)
 
 def _agg(rows, mode, threshold):
-    if not rows:
-        return []
+    if not rows: return []
     bars = []
-    ts0, p0, s0, b0, a0 = rows[0]
+
+    def flush(t, o, h, l, c, vol, ticks,
+              buy_v, sell_v, sum_bid, sum_ask, sum_bsz, sum_asz, max_bsz, max_asz):
+        ts_int = int(t.timestamp()) if hasattr(t, "timestamp") else int(t)
+        vol      = vol or 1e-9
+        buy_v    = buy_v  or 0
+        sell_v   = sell_v or 0
+        delta    = round(buy_v - sell_v, 2)
+        bid      = round(sum_bid / ticks, 4) if ticks else None
+        ask      = round(sum_ask / ticks, 4) if ticks else None
+        ab_sz    = round(sum_bsz / ticks, 2) if ticks else None
+        aa_sz    = round(sum_asz / ticks, 2) if ticks else None
+        mb_sz    = round(max_bsz, 2) if max_bsz else None
+        ma_sz    = round(max_asz, 2) if max_asz else None
+        size_imb = None
+        if ab_sz and aa_sz and (ab_sz + aa_sz) > 0:
+            size_imb = round((ab_sz - aa_sz) / (ab_sz + aa_sz), 4)
+        return {
+            "time": ts_int, "open": o, "high": h, "low": l, "close": c,
+            "volume": round(vol, 2),
+            "bid": bid, "ask": ask, "vwap": None,
+            "buy_vol":    round(buy_v,  2),
+            "sell_vol":   round(sell_v, 2),
+            "delta":      delta,
+            "delta_pct":  round(delta / vol * 100, 2),
+            "avg_bid_sz": ab_sz, "avg_ask_sz": aa_sz,
+            "max_bid_sz": mb_sz, "max_ask_sz": ma_sz,
+            "size_imb":   size_imb,
+            "cum_delta":  0,  # filled after
+        }
+
+    ts0, p0, sz0, sd0, b0, a0, bsz0, asz0 = rows[0]
     o = h = l = c = p0
-    vol = ticks = 0
-    sum_bids = sum_asks = 0.0
+    vol = ticks = buy_v = sell_v = 0
+    sum_bid = sum_ask = sum_bsz = sum_asz = 0.0
+    max_bsz = max_asz = 0.0
     t = ts0
 
-    for ts, price, size, bid, ask in rows:
+    for ts, price, size, side, bid, ask, bsz, asz in rows:
         h = max(h, price); l = min(l, price); c = price
-        vol += (size or 0); ticks += 1
-        sum_bids += (bid or 0); sum_asks += (ask or 0)
+        s = size or 0; vol += s; ticks += 1
+        if side == 'B': buy_v  += s
+        else:           sell_v += s
+        sum_bid += (bid  or 0); sum_ask += (ask  or 0)
+        sum_bsz += (bsz  or 0); sum_asz += (asz  or 0)
+        max_bsz  = max(max_bsz, bsz or 0)
+        max_asz  = max(max_asz, asz or 0)
 
         done = (
-            (mode == "volume" and vol >= threshold) or
+            (mode == "volume" and vol   >= threshold) or
             (mode == "tick"   and ticks >= threshold) or
             (mode == "range"  and (h - l) >= threshold)
         )
         if done:
-            ts_int = int(t.timestamp()) if hasattr(t, "timestamp") else int(t)
-            bars.append({
-                "time":   ts_int,
-                "open":   o,
-                "high":   h,
-                "low":    l,
-                "close":  c,
-                "volume": vol,
-                "bid":    round(sum_bids / ticks, 4),
-                "ask":    round(sum_asks / ticks, 4),
-                "vwap":   None,
-            })
+            bars.append(flush(t, o, h, l, c, vol, ticks,
+                               buy_v, sell_v, sum_bid, sum_ask, sum_bsz, sum_asz, max_bsz, max_asz))
             o = h = l = c = price
-            vol = ticks = 0
-            sum_bids = sum_asks = 0.0
+            vol = ticks = buy_v = sell_v = 0
+            sum_bid = sum_ask = sum_bsz = sum_asz = 0.0
+            max_bsz = max_asz = 0.0
             t = ts
 
-    # flush last partial bar
     if ticks > 0:
-        ts_int = int(t.timestamp()) if hasattr(t, "timestamp") else int(t)
-        bars.append({
-            "time":   ts_int,
-            "open":   o,
-            "high":   h,
-            "low":    l,
-            "close":  c,
-            "volume": vol,
-            "bid":    round(sum_bids / ticks, 4),
-            "ask":    round(sum_asks / ticks, 4),
-            "vwap":   None,
-        })
+        bars.append(flush(t, o, h, l, c, vol, ticks,
+                           buy_v, sell_v, sum_bid, sum_ask, sum_bsz, sum_asz, max_bsz, max_asz))
+
+    # cumulative delta
+    cd = 0
+    for bar in bars:
+        cd += bar["delta"]; bar["cum_delta"] = round(cd, 2)
+
     return bars
+
+@app.get("/bars/volume")
+def volume_bars(path: str = Query(...), symbol: str = Query("ESM4"),
+                threshold: int = Query(1000),
+                date_from: Optional[str] = Query(None), date_to: Optional[str] = Query(None)):
+    ensure_file(path)
+    return _agg(_fetch_of(path, date_where(symbol, date_from, date_to)), "volume", threshold)
+
+@app.get("/bars/tick")
+def tick_bars(path: str = Query(...), symbol: str = Query("ESM4"),
+              threshold: int = Query(500),
+              date_from: Optional[str] = Query(None), date_to: Optional[str] = Query(None)):
+    ensure_file(path)
+    return _agg(_fetch_of(path, date_where(symbol, date_from, date_to)), "tick", threshold)
+
+@app.get("/bars/range")
+def range_bars(path: str = Query(...), symbol: str = Query("ESM4"),
+               threshold: float = Query(4.0),
+               date_from: Optional[str] = Query(None), date_to: Optional[str] = Query(None)):
+    ensure_file(path)
+    return _agg(_fetch_of(path, date_where(symbol, date_from, date_to)), "range", threshold)
 
 # ── BACKTEST ──────────────────────────────────────────────────────────────
 class BacktestRequest(BaseModel):
-    path:            str
-    symbol:          str   = "ESM4"
-    bar_type:        str   = "time"
-    interval:        str   = "5min"
-    threshold:       float = 1000
-    date_from:       Optional[str] = None
-    date_to:         Optional[str] = None
-    strategy:        str
+    path: str
+    symbol: str = "ESM4"
+    bar_type: str = "time"
+    interval: str = "5min"
+    threshold: float = 1000
+    date_from: Optional[str] = None
+    date_to:   Optional[str] = None
+    strategy:  str
     initial_capital: float = 100000
     commission:      float = 2.0
     slippage:        float = 0.25
@@ -227,21 +268,17 @@ def run_backtest(req: BacktestRequest):
             di = im.get(req.interval, "5 minutes")
             raw = con.execute(f"""
                 SELECT
-                    epoch(time_bucket(INTERVAL '{di}', ts_recv::TIMESTAMPTZ)),
-                    FIRST(price ORDER BY ts_recv), MAX(price), MIN(price),
-                    LAST(price ORDER BY ts_recv), SUM(size),
-                    AVG(bid_px_00), AVG(ask_px_00),
-                    SUM(price * size) / NULLIF(SUM(size), 0)
+                    epoch(time_bucket(INTERVAL '{di}', ts_recv::TIMESTAMPTZ)) AS t,
+                    FIRST(price ORDER BY ts_recv) AS o,
+                    MAX(price) AS h, MIN(price) AS l,
+                    LAST(price ORDER BY ts_recv) AS c,
+                    {OF_COLS}
                 FROM read_parquet('{req.path}') {w}
                 GROUP BY 1 ORDER BY 1
             """).fetchall()
-            bars = clean_ohlcv(raw, has_extras=True)
+            bars = clean_ohlcv(raw)
         else:
-            raw = con.execute(f"""
-                SELECT ts_recv, price, size, bid_px_00, ask_px_00
-                FROM read_parquet('{req.path}') {w} ORDER BY ts_recv
-            """).fetchall()
-            bars = _agg(raw, req.bar_type, req.threshold)
+            bars = _agg(_fetch_of(req.path, w), req.bar_type, req.threshold)
 
         if not bars:
             return {"success": False, "error": "No bars found. Coba perluas date range atau cek symbol."}
@@ -252,18 +289,11 @@ def run_backtest(req: BacktestRequest):
 
         stats = _stats(trades, equity, req.initial_capital)
         mc    = _monte_carlo(trades, req.initial_capital)
-        return {
-            "success": True,
-            "trades":  trades,
-            "equity":  equity,
-            "stats":   stats,
-            "monte_carlo": mc,
-        }
+        return {"success": True, "trades": trades, "equity": equity, "stats": stats, "monte_carlo": mc}
 
     except Exception:
         return {"success": False, "error": traceback.format_exc()}
 
-# FIX: use builtins module directly instead of __builtins__ dict hack
 SAFE_BUILTINS = {
     "abs": abs, "round": round, "min": min, "max": max, "sum": sum,
     "len": len, "range": range, "enumerate": enumerate, "zip": zip,
@@ -277,20 +307,14 @@ SAFE_BUILTINS = {
 }
 
 def _run_strategy(bars, req):
-    trades  = []
-    equity  = []
-    cash    = req.initial_capital
-    position  = 0
-    entry_price = 0.0
-    entry_time  = 0
+    trades = []; equity = []
+    cash = req.initial_capital
+    position = 0; entry_price = 0.0; entry_time = 0
 
     class Ctx:
         def __init__(self):
-            self.position    = 0
-            self.entry_price = 0.0
-            self.cash        = req.initial_capital
-            self.data        = {}
-            self.bars_seen   = 0
+            self.position = 0; self.entry_price = 0.0
+            self.cash = req.initial_capital; self.data = {}; self.bars_seen = 0
 
     ctx = Ctx()
     g   = {"__builtins__": SAFE_BUILTINS, "np": np, "math": math}
@@ -303,19 +327,15 @@ def _run_strategy(bars, req):
     init_fn   = g.get("initialize")
     on_bar_fn = g.get("on_bar")
     if not on_bar_fn:
-        return [], [], "`on_bar(bar, ctx, history)` function not found in strategy."
+        return [], [], "`on_bar(bar, ctx, history)` function not found."
 
     if init_fn:
-        try:
-            init_fn(ctx)
-        except Exception as e:
-            return [], [], f"initialize() error: {e}"
+        try: init_fn(ctx)
+        except Exception as e: return [], [], f"initialize() error: {e}"
 
     history = []
     for i, bar in enumerate(bars):
-        ctx.bars_seen = i
-        history.append(bar)
-
+        ctx.bars_seen = i; history.append(bar)
         try:
             sig = on_bar_fn(bar, ctx, history)
         except Exception:
@@ -323,10 +343,7 @@ def _run_strategy(bars, req):
 
         action, size = (sig if isinstance(sig, (tuple, list)) else (sig, 1)) if sig else (None, 1)
         size  = max(1, abs(int(size or 1)))
-        close = bar["close"]
-        slip  = req.slippage
-        comm  = req.commission
-        cs    = req.contract_size
+        close = bar["close"]; slip = req.slippage; cs = req.contract_size; comm = req.commission
 
         if action in ("BUY", "LONG") and position <= 0:
             if position < 0:
@@ -361,13 +378,11 @@ def _run_strategy(bars, req):
                 fill = close - slip; pnl = (fill - entry_price) * position * cs; side = "LONG"
             else:
                 fill = close + slip; pnl = (entry_price - fill) * abs(position) * cs; side = "SHORT"
-            pnl -= comm * 2 * abs(position)
-            cash += pnl
+            pnl -= comm * 2 * abs(position); cash += pnl
             trades.append({"entry_time": entry_time, "exit_time": bar["time"],
                            "side": side, "entry": entry_price, "exit": fill,
                            "size": abs(position), "pnl": round(pnl, 2)})
-            position = 0; entry_price = 0
-            ctx.position = 0; ctx.entry_price = 0
+            position = 0; entry_price = 0; ctx.position = 0; ctx.entry_price = 0
 
         open_pnl = 0
         if   position > 0: open_pnl = (close - entry_price) * position * cs
@@ -378,99 +393,71 @@ def _run_strategy(bars, req):
     return trades, equity, None
 
 def _stats(trades, equity, initial):
-    if not trades:
-        return {"total_trades": 0, "note": "No trades executed."}
+    if not trades: return {"total_trades": 0, "note": "No trades executed."}
     pnls   = np.array([t["pnl"] for t in trades])
-    wins   = pnls[pnls > 0]
-    losses = pnls[pnls <= 0]
+    wins   = pnls[pnls > 0]; losses = pnls[pnls <= 0]
     eqs    = np.array([e["equity"] for e in equity])
     peak   = np.maximum.accumulate(np.maximum(eqs, initial))
     dd     = (peak - eqs) / peak * 100
-    final  = float(eqs[-1])
-    wr     = len(wins) / len(pnls)
-    gp     = float(wins.sum())  if len(wins)   else 0.0
-    gl     = float(abs(losses.sum())) if len(losses) else 0.0
-    aw     = float(wins.mean()) if len(wins)   else 0.0
-    al     = float(losses.mean()) if len(losses) else 0.0
-
-    # Calmar = annualized return / max drawdown
+    final  = float(eqs[-1]); wr = len(wins) / len(pnls)
+    gp = float(wins.sum())  if len(wins)   else 0.0
+    gl = float(abs(losses.sum())) if len(losses) else 0.0
+    aw = float(wins.mean()) if len(wins)   else 0.0
+    al = float(losses.mean()) if len(losses) else 0.0
     total_return = (final - initial) / initial
     max_dd_pct   = float(dd.max())
-    calmar = round(total_return * 100 / max_dd_pct, 3) if max_dd_pct > 0 else 999
-
-    # Sortino (downside std)
+    calmar   = round(total_return * 100 / max_dd_pct, 3) if max_dd_pct > 0 else 999
     neg_pnls = pnls[pnls < 0]
-    downside_std = float(neg_pnls.std()) if len(neg_pnls) > 1 else 1e-9
-    sortino = round(float(pnls.mean()) / downside_std * np.sqrt(252), 3) if downside_std > 0 else 0
-
+    dstd     = float(neg_pnls.std()) if len(neg_pnls) > 1 else 1e-9
+    sortino  = round(float(pnls.mean()) / dstd * np.sqrt(252), 3) if dstd > 0 else 0
     return {
-        "total_trades":      len(trades),
-        "winning_trades":    int(len(wins)),
-        "losing_trades":     int(len(losses)),
-        "win_rate":          round(wr * 100, 2),
-        "total_pnl":         round(float(pnls.sum()), 2),
-        "gross_profit":      round(gp, 2),
-        "gross_loss":        round(gl, 2),
-        "profit_factor":     round(gp / gl, 3) if gl else 999,
-        "avg_win":           round(aw, 2),
-        "avg_loss":          round(al, 2),
-        "rr_ratio":          round(abs(aw / al), 3) if al else 0,
-        "expectancy":        round(wr * aw + (1 - wr) * al, 2),
-        "max_drawdown_pct":  round(max_dd_pct, 2),
-        "sharpe_ratio":      round(float(pnls.mean() / pnls.std() * np.sqrt(252)), 3) if pnls.std() > 0 else 0,
-        "sortino_ratio":     sortino,
-        "calmar_ratio":      calmar,
-        "total_return_pct":  round(total_return * 100, 2),
-        "final_equity":      round(final, 2),
-        "initial_capital":   initial,
-        "best_trade":        round(float(pnls.max()), 2),
-        "worst_trade":       round(float(pnls.min()), 2),
-        "avg_trade":         round(float(pnls.mean()), 2),
-        "max_consec_wins":   _consec(pnls, True),
-        "max_consec_losses": _consec(pnls, False),
+        "total_trades": len(trades), "winning_trades": int(len(wins)), "losing_trades": int(len(losses)),
+        "win_rate": round(wr * 100, 2), "total_pnl": round(float(pnls.sum()), 2),
+        "gross_profit": round(gp, 2), "gross_loss": round(gl, 2),
+        "profit_factor": round(gp / gl, 3) if gl else 999,
+        "avg_win": round(aw, 2), "avg_loss": round(al, 2),
+        "rr_ratio": round(abs(aw / al), 3) if al else 0,
+        "expectancy": round(wr * aw + (1 - wr) * al, 2),
+        "max_drawdown_pct": round(max_dd_pct, 2),
+        "sharpe_ratio": round(float(pnls.mean() / pnls.std() * np.sqrt(252)), 3) if pnls.std() > 0 else 0,
+        "sortino_ratio": sortino, "calmar_ratio": calmar,
+        "total_return_pct": round(total_return * 100, 2),
+        "final_equity": round(final, 2), "initial_capital": initial,
+        "best_trade": round(float(pnls.max()), 2), "worst_trade": round(float(pnls.min()), 2),
+        "avg_trade": round(float(pnls.mean()), 2),
+        "max_consec_wins": _consec(pnls, True), "max_consec_losses": _consec(pnls, False),
     }
 
 def _consec(pnls, wins):
     mx = cur = 0
     for p in pnls:
-        if (wins and p > 0) or (not wins and p <= 0):
-            cur += 1; mx = max(mx, cur)
-        else:
-            cur = 0
+        if (wins and p > 0) or (not wins and p <= 0): cur += 1; mx = max(mx, cur)
+        else: cur = 0
     return mx
 
 def _monte_carlo(trades, initial, n_sim=500):
-    if len(trades) < 2:
-        return {}
-    pnls      = np.array([t["pnl"] for t in trades])
-    n         = len(pnls)
-    final_eq  = []
-    max_dd    = []
-    paths     = []
-
+    if len(trades) < 2: return {}
+    pnls = np.array([t["pnl"] for t in trades]); n = len(pnls)
+    final_eq = []; max_dd = []; paths = []
     for s in range(n_sim):
-        r   = np.random.choice(pnls, size=n, replace=True)
-        eq  = np.insert(initial + np.cumsum(r), 0, initial)
-        pk  = np.maximum.accumulate(eq)
+        r  = np.random.choice(pnls, size=n, replace=True)
+        eq = np.insert(initial + np.cumsum(r), 0, initial)
+        pk = np.maximum.accumulate(eq)
         final_eq.append(float(eq[-1]))
         max_dd.append(float(((pk - eq) / pk * 100).max()))
-        if s < 100:
-            paths.append([round(x, 2) for x in eq.tolist()])
-
-    fe = np.array(final_eq)
-    md = np.array(max_dd)
+        if s < 100: paths.append([round(x, 2) for x in eq.tolist()])
+    fe = np.array(final_eq); md = np.array(max_dd)
     return {
-        "n_simulations":   n_sim,
-        "paths":           paths,
+        "n_simulations": n_sim, "paths": paths,
         "final_eq_p5":     round(float(np.percentile(fe,  5)), 2),
         "final_eq_p25":    round(float(np.percentile(fe, 25)), 2),
         "final_eq_median": round(float(np.percentile(fe, 50)), 2),
         "final_eq_p75":    round(float(np.percentile(fe, 75)), 2),
         "final_eq_p95":    round(float(np.percentile(fe, 95)), 2),
-        "max_dd_p50":      round(float(np.percentile(md, 50)), 2),
-        "max_dd_p95":      round(float(np.percentile(md, 95)), 2),
-        "prob_profit":     round(float((fe > initial).mean() * 100), 2),
-        "prob_ruin":       round(float((fe < initial * 0.5).mean() * 100), 2),
+        "max_dd_p50":  round(float(np.percentile(md, 50)), 2),
+        "max_dd_p95":  round(float(np.percentile(md, 95)), 2),
+        "prob_profit": round(float((fe > initial).mean() * 100), 2),
+        "prob_ruin":   round(float((fe < initial * 0.5).mean() * 100), 2),
     }
 
 if __name__ == "__main__":
